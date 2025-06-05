@@ -1,80 +1,73 @@
-import {app, BrowserWindow, shell} from "electron";
-import path from "path";
-import URL from "url";
-import updateInstaller from "./update_installer";
+require('dotenv').config();
+const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
+const axios = require('axios');
 
-const isDevelopment = process.env.NODE_ENV !== "production";
-app.name = "BetterDiscord";
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent
+  ],
+  partials: [Partials.Channel] // Required to receive DMs
+});
 
-let mainWindow; // global reference to mainWindow (necessary to prevent window from being garbage collected)
+client.once('ready', () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+});
 
-function createMainWindow() {
-    const window = new BrowserWindow({
-        title: "BetterDiscord Installer",
-        frame: false,
-        width: 550,
-        height: 350,
-        resizable: false,
-        fullscreenable: false,
-        maximizable: false,
-        backgroundColor: "#0c0d10",
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            enableRemoteModule: true
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+
+  // 📩 If message is a Direct Message
+  if (message.channel.type === ChannelType.DM) {
+    return handleMessage(message);
+  }
+
+  // 🏷 If mentioned or replied to in a server
+  const mentionedBot = message.mentions.has(client.user);
+  const repliedToBot =
+    message.reference &&
+    (await message.fetchReference()).author.id === client.user.id;
+
+  if (mentionedBot || repliedToBot) {
+    return handleMessage(message, true);
+  }
+});
+
+// 🔁 Centralized message handler
+async function handleMessage(message, isServer = false) {
+  const content = isServer
+    ? message.content.replace(/<@!?(\d+)>/, '').trim()
+    : message.content;
+
+  try {
+    const response = await axios.post(
+      'https://api.shapes.inc/v1/chat/completions',
+      {
+        model: `shapesinc/${process.env.SHAPESINC_SHAPE_USERNAME}`,
+        messages: [{ role: 'user', content }]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SHAPESINC_API_KEY}`,
+          'X-User-Id': message.author.id,
+          'X-Channel-Id': message.channel.id
         }
-    });
+      }
+    );
 
-    if (isDevelopment) {
-        window.webContents.openDevTools({mode: "detach"});
-    }
-
-    if (isDevelopment) {
-        window.loadURL(`http://localhost:${process.env.ELECTRON_WEBPACK_WDS_PORT}`);
-    }
-    else {
-        window.loadURL(URL.format({
-            pathname: path.join(__dirname, "index.html"),
-            protocol: "file",
-            slashes: true
-        }));
-    }
-
-    window.on("closed", () => {
-        mainWindow = null;
-    });
-
-    window.webContents.on("devtools-opened", () => {
-        window.focus();
-        setImmediate(() => {
-            window.focus();
-        });
-    });
-
-    // force <a> tags to open in browser
-
-    window.webContents.on("new-window", (e, url) => {
-        e.preventDefault();
-        shell.openExternal(url);
-    });
-
-    return window;
+    const reply = response.data.choices[0].message.content;
+    await message.reply(reply);
+  } catch (err) {
+    console.error(
+      `❌ Error from the bot syntax (${isServer ? 'Server' : 'DM'}):`,
+      err.response?.data || err.message
+    );
+    await message.reply(
+      `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
+    );
+  }
 }
 
-// quit application when all windows are closed
-app.on("window-all-closed", () => {
-    if (process.platform === "darwin") return; // on macOS it is common for applications to stay open until the user explicitly quits
-    app.quit();
-});
-
-// on macOS it is common to re-create a window even after all windows have been closed
-app.on("activate", () => {
-    if (mainWindow !== null) return;
-    mainWindow = createMainWindow();
-});
-
-// create main BrowserWindow when electron is ready
-app.on("ready", async () => {
-    mainWindow = createMainWindow();
-    if (!process.env.BD_SKIP_UPDATECHECK) updateInstaller();
-});
+client.login(process.env.DISCORD_BOT_TOKEN);
