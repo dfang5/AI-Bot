@@ -71,3 +71,11 @@ async function handleMessage(message, isServer = false) {
 }
 
 client.login(process.env.DISCORD_BOT_TOKEN);
+
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled promise rejection:", err);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+});
