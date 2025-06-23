@@ -16,7 +16,6 @@ const bot = createBot({
   token: DISCORD_BOT_TOKEN,
   intents: Intents.Guilds | Intents.GuildMessages | Intents.MessageContent | Intents.DirectMessages,
   botId: BigInt("0"), // Will be filled on ready
-  events: eventHandlers,
 });
 
 // ✅ Store bot ID on ready
