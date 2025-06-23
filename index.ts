@@ -38,10 +38,15 @@ bot.events.messageCreate = async (b, message) => {
   try {
     const channel = await b.helpers.getChannel(message.channelId);
 
-    const isDM = channel.type === 1n;
-    const isMentioned = message.mentions?.some((m) => m.id === b.id) ?? false;
+    // ✅ More reliable DM check
+    const isDM = channel.guildId === undefined;
+
+    // ✅ Mention and reply fallback checks
+    const mentions = message.mentions ?? [];
+    const isMentioned = mentions.some((m) => m.id === b.id);
     const isReply =
-      message.referencedMessage?.authorId === b.id;
+      !!message.referencedMessage &&
+      message.referencedMessage.authorId === b.id;
 
     console.log("📨 Message received:", {
       isDM,
@@ -50,19 +55,45 @@ bot.events.messageCreate = async (b, message) => {
       content: message.content,
     });
 
+    // ✅ Only respond if DM or mentioned/replied
     if (!(isDM || isMentioned || isReply)) return;
 
     // 🕐 Typing indicator
     try {
       await b.helpers.sendTyping(message.channelId);
     } catch {
-      console.warn("⚠️ Typing indicator failed (not supported in all channels)");
+      console.warn("⚠️ Typing not supported in this channel.");
     }
 
     const userInput = isMentioned
       ? message.content.replace(/<@!?(\d+)>/, "").trim()
       : message.content;
 
+    const response = await fetch("https://api.shapes.inc/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SHAPESINC_API_KEY}`,
+        "Content-Type": "application/json",
+        "X-User-Id": message.authorId.toString(),
+        "X-Channel-Id": message.channelId.toString(),
+      },
+      body: JSON.stringify({
+        model: `shapesinc/${SHAPESINC_SHAPE_USERNAME}`,
+        messages: [{ role: "user", content: userInput }],
+      }),
+    });
+
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content ?? "No response received.";
+
+    await sendMessage(b, message.channelId, { content: reply });
+  } catch (err) {
+    console.error("❌ Error while replying:", err);
+    await sendMessage(b, message.channelId, {
+      content: "Sorry, I had a hiccup trying to respond.",
+    });
+  }
+};
     // 🔁 Send request to Shapes API
     const response = await fetch("https://api.shapes.inc/v1/chat/completions", {
       method: "POST",
