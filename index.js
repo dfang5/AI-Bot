@@ -1,81 +1,81 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
-const axios = require('axios');
+// index.ts
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent
-  ],
-  partials: [Partials.Channel] // Required to receive DMs
-});
+import { createBot, Intents, startBot, eventHandlers, sendMessage, Message } from "https://deno.land/x/discordeno@18.0.1/mod.ts";
 
-client.once('ready', () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
-});
+// ✅ Load environment variables
+const DISCORD_BOT_TOKEN = Deno.env.get("DISCORD_BOT_TOKEN");
+const SHAPESINC_API_KEY = Deno.env.get("SHAPESINC_API_KEY");
+const SHAPESINC_SHAPE_USERNAME = Deno.env.get("SHAPESINC_SHAPE_USERNAME");
 
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-
-  // 📩 If message is a Direct Message
-  if (message.channel.type === ChannelType.DM) {
-    return handleMessage(message);
-  }
-
-  // 🏷 If mentioned or replied to in a server
-  const mentionedBot = message.mentions.has(client.user);
-  const repliedToBot =
-    message.reference &&
-    (await message.fetchReference()).author.id === client.user.id;
-
-  if (mentionedBot || repliedToBot) {
-    return handleMessage(message, true);
-  }
-});
-
-// 🔁 Centralized message handler
-async function handleMessage(message, isServer = false) {
-  const content = isServer
-    ? message.content.replace(/<@!?(\d+)>/, '').trim()
-    : message.content;
-
-  try {
-    const response = await axios.post(
-      'https://api.shapes.inc/v1/chat/completions',
-      {
-        model: `shapesinc/${process.env.SHAPESINC_SHAPE_USERNAME}`,
-        messages: [{ role: 'user', content }]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SHAPESINC_API_KEY}`,
-          'X-User-Id': message.author.id,
-          'X-Channel-Id': message.channel.id
-        }
-      }
-    );
-
-    const reply = response.data.choices[0].message.content;
-    await message.reply(reply);
-  } catch (err) {
-    console.error(
-      `❌ Error from the bot syntax (${isServer ? 'Server' : 'DM'}):`,
-      err.response?.data || err.message
-    );
-    await message.reply(
-      `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
-    );
-  }
+if (!DISCORD_BOT_TOKEN || !SHAPESINC_API_KEY || !SHAPESINC_SHAPE_USERNAME) {
+  throw new Error("Missing required environment variables.");
 }
 
-client.login(process.env.DISCORD_BOT_TOKEN);
-
-process.on("unhandledRejection", (err) => {
-  console.error("Unhandled promise rejection:", err);
+// ✅ Create bot instance
+const bot = createBot({
+  token: DISCORD_BOT_TOKEN,
+  intents: Intents.Guilds | Intents.GuildMessages | Intents.MessageContent | Intents.DirectMessages,
+  botId: BigInt("0"), // Will be filled on ready
+  events: eventHandlers,
 });
 
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught exception:", err);
-});
+// ✅ Store bot ID on ready
+bot.events.ready = (b, payload) => {
+  b.id = payload.user.id;
+  console.log(`🤖 Logged in as ${payload.user.username}`);
+};
+
+// ✅ Handle messages
+bot.events.messageCreate = async (b, message) => {
+  if (message.isBot) return;
+
+  const channel = await b.helpers.getChannel(message.channelId);
+
+  const isDM = channel.type === 1n;
+  const isMentioned = message.mentions.some((m) => m.id === b.id);
+  const isReply =
+    message.referencedMessage &&
+    message.referencedMessage.authorId === b.id;
+
+  if (isDM || isMentioned || isReply) {
+    const content = isMentioned
+      ? message.content.replace(/<@!?(\d+)>/, "").trim()
+      : message.content;
+
+    // Show typing indicator
+    try {
+      await b.helpers.sendTyping(message.channelId);
+    } catch {
+      // Typing might not be available in some edge cases; ignore
+    }
+
+    try {
+      const response = await fetch("https://api.shapes.inc/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SHAPESINC_API_KEY}`,
+          "Content-Type": "application/json",
+          "X-User-Id": message.authorId.toString(),
+          "X-Channel-Id": message.channelId.toString()
+        },
+        body: JSON.stringify({
+          model: `shapesinc/${SHAPESINC_SHAPE_USERNAME}`,
+          messages: [{ role: "user", content }]
+        })
+      });
+
+      const data = await response.json();
+      const reply = data.choices?.[0]?.message?.content ?? "No response received.";
+
+      await sendMessage(b, message.channelId, { content: reply });
+    } catch (err) {
+      console.error(`❌ Error while replying:`, err);
+      await sendMessage(b, message.channelId, {
+        content: `Sorry, I had a hiccup trying to respond.`,
+      });
+    }
+  }
+};
+
+// ✅ Start the bot
+await startBot(bot);
