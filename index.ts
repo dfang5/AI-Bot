@@ -5,7 +5,7 @@ import {
   sendMessage,
 } from "https://deno.land/x/discordeno@18.0.1/mod.ts";
 
-// ✅ Load environment variables
+// ✅ Environment variables
 const DISCORD_BOT_TOKEN = Deno.env.get("DISCORD_BOT_TOKEN");
 const SHAPESINC_API_KEY = Deno.env.get("SHAPESINC_API_KEY");
 const SHAPESINC_SHAPE_USERNAME = Deno.env.get("SHAPESINC_SHAPE_USERNAME");
@@ -14,86 +14,79 @@ if (!DISCORD_BOT_TOKEN || !SHAPESINC_API_KEY || !SHAPESINC_SHAPE_USERNAME) {
   throw new Error("Missing required environment variables.");
 }
 
-// ✅ Create bot instance
+// ✅ Bot instance
 const bot = createBot({
   token: DISCORD_BOT_TOKEN,
+  botId: BigInt("0"),
   intents:
     Intents.Guilds |
     Intents.GuildMessages |
-    Intents.MessageContent |
-    Intents.DirectMessages,
-  botId: BigInt("0"), // Will be filled on ready
+    Intents.DirectMessages |
+    Intents.MessageContent,
 });
 
-// ✅ Store bot ID on ready
+// ✅ On ready
 bot.events.ready = (b, payload) => {
   b.id = payload.user.id;
   console.log(`🤖 Logged in as ${payload.user.username}`);
 };
 
-// ✅ Handle messages
+// ✅ Message handler
 bot.events.messageCreate = async (b, message) => {
   if (message.isBot) return;
 
-  console.log("✅ Message received");
+  try {
+    const channel = await b.helpers.getChannel(message.channelId);
 
-  const channel = await b.helpers.getChannel(message.channelId);
-  const isDM = channel.type === 1n;
-  const isMentioned = message.mentions?.some((m) => m.id === b.id) ?? false;
-  const isReply =
-    message.referencedMessage &&
-    message.referencedMessage.authorId === b.id;
+    const isDM = channel.type === 1n;
+    const isMentioned = message.mentions?.some((m) => m.id === b.id) ?? false;
+    const isReply =
+      message.referencedMessage?.authorId === b.id;
 
-  console.log("📨 Context:", {
-    isDM,
-    isMentioned,
-    isReply,
-    content: message.content,
-  });
+    console.log("📨 Message received:", {
+      isDM,
+      isMentioned,
+      isReply,
+      content: message.content,
+    });
 
-  if (isDM || isMentioned || isReply) {
-    const content = isMentioned
+    if (!(isDM || isMentioned || isReply)) return;
+
+    // 🕐 Typing indicator
+    try {
+      await b.helpers.sendTyping(message.channelId);
+    } catch {
+      console.warn("⚠️ Typing indicator failed (not supported in all channels)");
+    }
+
+    const userInput = isMentioned
       ? message.content.replace(/<@!?(\d+)>/, "").trim()
       : message.content;
 
-    try {
-      console.log("⌨️ Sending typing indicator...");
-      await b.helpers.sendTyping(message.channelId);
-    } catch (err) {
-      console.warn("⚠️ Could not send typing indicator:", err);
-    }
+    // 🔁 Send request to Shapes API
+    const response = await fetch("https://api.shapes.inc/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SHAPESINC_API_KEY}`,
+        "Content-Type": "application/json",
+        "X-User-Id": message.authorId.toString(),
+        "X-Channel-Id": message.channelId.toString(),
+      },
+      body: JSON.stringify({
+        model: `shapesinc/${SHAPESINC_SHAPE_USERNAME}`,
+        messages: [{ role: "user", content: userInput }],
+      }),
+    });
 
-    try {
-      console.log("📤 Sending request to Shapes API...");
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content ?? "No response received.";
 
-      const response = await fetch("https://api.shapes.inc/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${SHAPESINC_API_KEY}`,
-          "Content-Type": "application/json",
-          "X-User-Id": message.authorId.toString(),
-          "X-Channel-Id": message.channelId.toString(),
-        },
-        body: JSON.stringify({
-          model: `shapesinc/${SHAPESINC_SHAPE_USERNAME}`,
-          messages: [{ role: "user", content }],
-        }),
-      });
-
-      const data = await response.json();
-      console.log("📥 Response from Shapes API:", data);
-
-      const reply = data.choices?.[0]?.message?.content ?? "🤖 No reply received.";
-
-      console.log("💬 Sending reply:", reply);
-      await sendMessage(b, message.channelId, { content: reply });
-    } catch (err) {
-      console.error("❌ Error while replying:", err);
-
-      await sendMessage(b, message.channelId, {
-        content: "⚠️ Sorry, I had a hiccup trying to respond.",
-      });
-    }
+    await sendMessage(b, message.channelId, { content: reply });
+  } catch (err) {
+    console.error("❌ Message handler error:", err);
+    await sendMessage(b, message.channelId, {
+      content: "Sorry, I had a hiccup trying to respond.",
+    });
   }
 };
 
