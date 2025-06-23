@@ -31,10 +31,17 @@ bot.events.messageCreate = async (b, message) => {
   const channel = await b.helpers.getChannel(message.channelId);
 
   const isDM = channel.type === 1n;
-  const isMentioned = message.mentions.some((m) => m.id === b.id); ?? false; 
-  const isReply =
-    message.referencedMessage &&
-    message.referencedMessage.authorId === b.id;
+const isMentioned = message.mentions?.some((m) => m.id === b.id) ?? false;
+const isReply =
+  message.referencedMessage &&
+  message.referencedMessage.authorId === b.id;
+
+console.log("✅ Message received:", {
+  isDM,
+  isMentioned,
+  isReply,
+  content: message.content
+});
 
   if (isDM || isMentioned || isReply) {
     const content = isMentioned
