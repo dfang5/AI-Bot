@@ -1,6 +1,6 @@
 // index.ts
 
-import { createBot, Intents, startBot, sendMessage, eventHandlers, Message } from "https://deno.land/x/discordeno@18.0.1/mod.ts";
+import { createBot, Intents, startBot, sendMessage, Message } from "https://deno.land/x/discordeno@18.0.1/mod.ts";
 
 // ✅ Load environment variables
 const DISCORD_BOT_TOKEN = Deno.env.get("DISCORD_BOT_TOKEN");
@@ -16,7 +16,6 @@ const bot = createBot({
   token: DISCORD_BOT_TOKEN,
   intents: Intents.Guilds | Intents.GuildMessages | Intents.MessageContent | Intents.DirectMessages,
   botId: BigInt("0"), // Will be filled on ready
-  events: eventHandlers,
 });
 
 // ✅ Store bot ID on ready
