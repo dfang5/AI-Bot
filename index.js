@@ -1,6 +1,6 @@
 // index.ts
 
-import { createBot, Intents, startBot, eventHandlers, sendMessage } from "https://deno.land/x/discordeno@18.0.1/mod.ts";
+import { createBot, Intents, startBot, eventHandlers, sendMessage, Message } from "https://deno.land/x/discordeno@18.0.1/mod.ts";
 
 // ✅ Load environment variables
 const DISCORD_BOT_TOKEN = Deno.env.get("DISCORD_BOT_TOKEN");
