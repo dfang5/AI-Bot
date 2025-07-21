@@ -25,8 +25,6 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Channel] // Required to receive DMs
-    status: 'idle' // You can also use 'online', 'dnd', or 'invisible'
-    }
 });
 
 client.once('ready', () => {
