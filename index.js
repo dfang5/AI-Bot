@@ -29,6 +29,9 @@ const client = new Client({
 
 client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
+
+  // Set the status to "idle"
+  client.user.setStatus('idle');
 });
 
 client.on('messageCreate', async message => {
