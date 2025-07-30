@@ -1,94 +1,126 @@
-// Import required modules from Deno-style sources
-import {
-  createBot,
-  Intents,
-  startBot,
-} from "https://deno.land/x/discordeno@18.0.1/mod.ts";
-import { config } from "https://deno.land/x/dotenv@v3.2.2/mod.ts";
-import { ensureArray } from "https://deno.land/std@0.224.0/bytes/mod.ts";
+// Start of Bot Code
+require('dotenv').config();
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  ChannelType,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+} = require('discord.js');
+const axios = require('axios');
 
-// Load environment variables from .env
-config();
-
-// Validate required variables
-const DISCORD_BOT_TOKEN = Deno.env.get("DISCORD_BOT_TOKEN")!;
-const SHAPESINC_API_KEY = Deno.env.get("SHAPESINC_API_KEY")!;
-const SHAPESINC_SHAPE_USERNAME = Deno.env.get("SHAPESINC_SHAPE_USERNAME")!;
-
-if (!DISCORD_BOT_TOKEN || !SHAPESINC_API_KEY || !SHAPESINC_SHAPE_USERNAME) {
-  console.error("❌ Missing required environment variables.");
-  Deno.exit(1);
-}
-
-// Create Discord bot instance
-const bot = createBot({
-  token: DISCORD_BOT_TOKEN,
-  intents:
-    Intents.Guilds |
-    Intents.GuildMessages |
-    Intents.MessageContent |
-    Intents.DirectMessages,
+// Setup Discord Client
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Channel],
 });
 
-// On ready
-bot.events.ready = (b, payload) => {
-  b.id = payload.user.id;
-  console.log(`🤖 Logged in as ${payload.user.username}`);
+// Register Slash Commands
+const commands = [
+  new SlashCommandBuilder()
+    .setName('network')
+    .setDescription('Network utilities')
+    .addSubcommand(sub =>
+      sub.setName('status').setDescription('Show ping and uptime.')
+    )
+    .toJSON(),
+];
 
-  // Set status if the library supports presence (Discordeno v19+, optional)
-  // Not included in v18 — skip or upgrade if needed.
-};
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
 
-// Message handler
-bot.events.messageCreate = async (b, message) => {
-  if (message.isBot) return;
+(async () => {
+  try {
+    console.log('🔄 Registering slash commands...');
+    await rest.put(
+      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
+      { body: commands }
+    );
+    console.log('✅ Slash commands registered!');
+  } catch (error) {
+    console.error('❌ Error registering commands:', error);
+  }
+})();
 
-  const channel = await b.helpers.getChannel(message.channelId);
-  const isDM = channel.type === 1n;
-  const mentions = message.mentions?.map(m => m.id) ?? [];
-  const isMentioned = mentions.includes(b.id);
-  const isReply = message.referencedMessage?.authorId === b.id;
+// Bot Ready
+client.once('ready', () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+});
 
-  if (!isDM && !isMentioned && !isReply) return;
+// Handle Message Events
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
 
-  const content = isMentioned
-    ? message.content.replace(/<@!?(\d+)>/, "").trim()
+  if (message.channel.type === ChannelType.DM) {
+    return handleMessage(message);
+  }
+
+  const mentionedBot = message.mentions.has(client.user);
+  const repliedToBot =
+    message.reference &&
+    (await message.fetchReference()).author.id === client.user.id;
+
+  if (mentionedBot || repliedToBot) {
+    return handleMessage(message, true);
+  }
+});
+
+// Handle Slash Commands
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'network' && interaction.options.getSubcommand() === 'status') {
+    const ping = client.ws.ping;
+    const uptime = Math.floor(client.uptime / 1000);
+    const h = Math.floor(uptime / 3600);
+    const m = Math.floor((uptime % 3600) / 60);
+    const s = uptime % 60;
+
+    await interaction.reply({
+      content: `📡 Ping: ${ping}ms\n⏱ Uptime: ${h}h ${m}m ${s}s`,
+      ephemeral: true,
+    });
+  }
+});
+
+// Handle Message Logic
+async function handleMessage(message, isServer = false) {
+  const content = isServer
+    ? message.content.replace(/<@!?(\d+)>/, '').trim()
     : message.content;
 
-  // Show typing
   try {
-    await b.helpers.sendTyping(message.channelId);
-  } catch {}
+    await message.channel.sendTyping();
 
-  try {
-    const response = await fetch(
-      "https://api.shapes.inc/v1/chat/completions",
+    const response = await axios.post(
+      'https://api.shapes.inc/v1/chat/completions',
       {
-        method: "POST",
+        model: `shapesinc/${process.env.SHAPESINC_SHAPE_USERNAME}`,
+        messages: [{ role: 'user', content }],
+      },
+      {
         headers: {
-          "Authorization": `Bearer ${SHAPESINC_API_KEY}`,
-          "Content-Type": "application/json",
-          "X-User-Id": message.authorId.toString(),
-          "X-Channel-Id": message.channelId.toString()
+          Authorization: `Bearer ${process.env.SHAPESINC_API_KEY}`,
+          'X-User-Id': message.author.id,
+          'X-Channel-Id': message.channel.id,
         },
-        body: JSON.stringify({
-          model: `shapesinc/${SHAPESINC_SHAPE_USERNAME}`,
-          messages: [{ role: "user", content }],
-        })
       }
     );
 
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || "🤔 I couldn't think of a reply.";
-
-    await b.helpers.sendMessage(message.channelId, { content: reply });
+    const reply = response.data.choices[0].message.content;
+    await message.reply(reply);
   } catch (err) {
-    console.error("❌ Error:", err);
-    await b.helpers.sendMessage(message.channelId, {
-      content: `Sorry, I had a little hiccup ${isDM ? 'in your DMs' : 'in the server'}.`
-    });
+    console.error(`❌ Error (${isServer ? 'Server' : 'DM'}):`, err.response?.data || err.message);
+    await message.reply(
+      `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
+    );
   }
-};
+}
 
-// Start the bot
-await startBot(bot);
+client.login(process.env.DISCORD_BOT_TOKEN);
