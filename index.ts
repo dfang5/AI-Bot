@@ -1,8 +1,3 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-
-// Dummy HTTP server to keep Deno Deploy happy
-serve((req) => new Response("Fang Bot is alive!"));
-
 // Start of Bot Code
 require('dotenv').config();
 const {
