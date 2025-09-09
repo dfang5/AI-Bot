@@ -55,6 +55,29 @@ client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
+// Helper: Build user context for AI
+async function buildUserContext(message) {
+  const user = message.author;
+  let displayName = user.username;
+  let globalName = user.globalName || user.username;
+
+  if (message.guild) {
+    try {
+      const member = await message.guild.members.fetch(user.id);
+      displayName = member.displayName || member.nickname || user.username;
+    } catch (err) {
+      console.log(`⚠️ Could not fetch member info for ${user.id}: ${err.message}`);
+    }
+  }
+
+  return {
+    id: user.id,
+    username: user.username,
+    globalName,
+    displayName,
+  };
+}
+
 // Handle Message Events
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
@@ -109,11 +132,17 @@ async function handleMessage(message, isServer = false) {
   try {
     await message.channel.sendTyping();
 
+    const userContext = await buildUserContext(message);
+
+    // Enhance user message with context info
+    const enhancedContent =
+      `[User Context: username=${userContext.username}, displayName=${userContext.displayName}, globalName=${userContext.globalName}, id=${userContext.id}]\n\nMessage: ${content}`;
+
     const response = await axios.post(
       'https://api.shapes.inc/v1/chat/completions',
       {
         model: `shapesinc/${process.env.SHAPESINC_SHAPE_USERNAME}`,
-        messages: [{ role: 'user', content }],
+        messages: [{ role: 'user', content: enhancedContent }],
       },
       {
         headers: {
