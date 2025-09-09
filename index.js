@@ -169,9 +169,14 @@ async function extractUserContext(message) {
 
 // Handle Message Logic
 async function handleMessage(message, isServer = false) {
-  const content = isServer
-    ? message.content.replace(/<@!?(\d+)>/, '').trim()
-    : message.content;
+  let content = message.content;
+  
+  if (isServer) {
+    // Remove all mentions of the bot from the message
+    content = content.replace(/<@!?\d+>/g, '').trim();
+    // Also remove any leftover whitespace
+    content = content.replace(/\s+/g, ' ').trim();
+  }
 
   try {
     await message.channel.sendTyping();
