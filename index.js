@@ -1,4 +1,3 @@
-// Start of Bot Code
 require('dotenv').config();
 const {
   Client,
@@ -21,6 +20,9 @@ const client = new Client({
   ],
   partials: [Partials.Channel],
 });
+
+// Track handled messages to prevent duplicates
+const handled = new Set();
 
 // Register Slash Commands
 const commands = [
@@ -56,15 +58,24 @@ client.once('ready', () => {
 // Handle Message Events
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
+  if (handled.has(message.id)) return; // skip duplicates
+  handled.add(message.id);
 
   if (message.channel.type === ChannelType.DM) {
     return handleMessage(message);
   }
 
   const mentionedBot = message.mentions.has(client.user);
-  const repliedToBot =
-    message.reference &&
-    (await message.fetchReference()).author.id === client.user.id;
+  let repliedToBot = false;
+
+  if (message.reference) {
+    try {
+      const ref = await message.fetchReference();
+      repliedToBot = ref.author.id === client.user.id;
+    } catch (err) {
+      repliedToBot = false;
+    }
+  }
 
   if (mentionedBot || repliedToBot) {
     return handleMessage(message, true);
@@ -91,7 +102,7 @@ client.on('interactionCreate', async interaction => {
 
 // Handle Message Logic
 async function handleMessage(message, isServer = false) {
-  const content = isServer
+  let content = isServer
     ? message.content.replace(/<@!?(\d+)>/, '').trim()
     : message.content;
 
@@ -113,13 +124,24 @@ async function handleMessage(message, isServer = false) {
       }
     );
 
+    if (!response.data?.choices?.[0]?.message?.content) {
+      console.error('❌ No AI content in response:', response.data);
+      return; // don’t reply with hiccup here
+    }
+
     const reply = response.data.choices[0].message.content;
     await message.reply(reply);
+
   } catch (err) {
     console.error(`❌ Error (${isServer ? 'Server' : 'DM'}):`, err.response?.data || err.message);
-    await message.reply(
-      `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
-    );
+
+    // Only reply with hiccup if *nothing* went through
+    if (!handled.has(`error-${message.id}`)) {
+      handled.add(`error-${message.id}`);
+      await message.reply(
+        `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
+      );
+    }
   }
 }
 
