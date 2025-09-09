@@ -134,7 +134,6 @@ async function handleMessage(message, isServer = false) {
 
     const userContext = await buildUserContext(message);
 
-    // Enhance user message with context info
     const enhancedContent =
       `[User Context: username=${userContext.username}, displayName=${userContext.displayName}, globalName=${userContext.globalName}, id=${userContext.id}]\n\nMessage: ${content}`;
 
@@ -150,27 +149,33 @@ async function handleMessage(message, isServer = false) {
           'X-User-Id': message.author.id,
           'X-Channel-Id': message.channel.id,
         },
+        timeout: 20000, // wait up to 20s before erroring out
       }
     );
 
-    if (!response.data?.choices?.[0]?.message?.content) {
+    const reply = response.data?.choices?.[0]?.message?.content;
+
+    if (!reply) {
       console.error('❌ No AI content in response:', response.data);
-      return; // don’t reply with hiccup here
+      return message.reply(
+        `Sorry, I couldn’t generate a proper response ${isServer ? 'in the server' : 'in your DMs'}.`
+      );
     }
 
-    const reply = response.data.choices[0].message.content;
-    await message.reply(reply);
+    return message.reply(reply);
 
   } catch (err) {
     console.error(`❌ Error (${isServer ? 'Server' : 'DM'}):`, err.response?.data || err.message);
 
-    // Only reply with hiccup if *nothing* went through
-    if (!handled.has(`error-${message.id}`)) {
-      handled.add(`error-${message.id}`);
-      await message.reply(
-        `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
-      );
-    }
+    // Don’t send hiccup immediately — wait a moment in case API resolves late
+    setTimeout(async () => {
+      if (!handled.has(`responded-${message.id}`)) {
+        handled.add(`responded-${message.id}`);
+        await message.reply(
+          `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
+        );
+      }
+    }, 3000); // wait 3s before sending hiccup
   }
 }
 
