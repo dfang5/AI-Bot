@@ -55,29 +55,6 @@ client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// Helper: Build user context for AI
-async function buildUserContext(message) {
-  const user = message.author;
-  let displayName = user.username;
-  let globalName = user.globalName || user.username;
-
-  if (message.guild) {
-    try {
-      const member = await message.guild.members.fetch(user.id);
-      displayName = member.displayName || member.nickname || user.username;
-    } catch (err) {
-      console.log(`⚠️ Could not fetch member info for ${user.id}: ${err.message}`);
-    }
-  }
-
-  return {
-    id: user.id,
-    username: user.username,
-    globalName,
-    displayName,
-  };
-}
-
 // Handle Message Events
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
@@ -95,7 +72,7 @@ client.on('messageCreate', async message => {
     try {
       const ref = await message.fetchReference();
       repliedToBot = ref.author.id === client.user.id;
-    } catch (err) {
+    } catch {
       repliedToBot = false;
     }
   }
@@ -123,6 +100,16 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
+// Build User Context
+async function buildUserContext(message) {
+  return {
+    username: message.author.username,
+    globalName: message.author.globalName || null,
+    displayName: message.member?.displayName || null,
+    id: message.author.id,
+  };
+}
+
 // Handle Message Logic
 async function handleMessage(message, isServer = false) {
   let content = isServer
@@ -149,7 +136,7 @@ async function handleMessage(message, isServer = false) {
           'X-User-Id': message.author.id,
           'X-Channel-Id': message.channel.id,
         },
-        timeout: 20000, // wait up to 20s before erroring out
+        timeout: 20000,
       }
     );
 
@@ -157,25 +144,14 @@ async function handleMessage(message, isServer = false) {
 
     if (!reply) {
       console.error('❌ No AI content in response:', response.data);
-      return message.reply(
-        `Sorry, I couldn’t generate a proper response ${isServer ? 'in the server' : 'in your DMs'}.`
-      );
+      return;
     }
 
     return message.reply(reply);
 
   } catch (err) {
     console.error(`❌ Error (${isServer ? 'Server' : 'DM'}):`, err.response?.data || err.message);
-
-    // Don’t send hiccup immediately — wait a moment in case API resolves late
-    setTimeout(async () => {
-      if (!handled.has(`responded-${message.id}`)) {
-        handled.add(`responded-${message.id}`);
-        await message.reply(
-          `Sorry, I had a little hiccup ${isServer ? 'talking in the server' : 'in your DMs'}.`
-        );
-      }
-    }, 3000); // wait 3s before sending hiccup
+    // No hiccup message — fail silently
   }
 }
 
