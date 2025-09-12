@@ -9,6 +9,8 @@ const {
   SlashCommandBuilder,
 } = require('discord.js');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 // Setup Discord Client
 const client = new Client({
@@ -23,6 +25,17 @@ const client = new Client({
 
 // Track handled messages to prevent duplicates
 const handled = new Set();
+
+// Load blacklist from file
+let blacklist = [];
+try {
+  const blacklistPath = path.join(__dirname, 'blacklist.json');
+  const blacklistData = fs.readFileSync(blacklistPath, 'utf8');
+  blacklist = JSON.parse(blacklistData);
+  console.log(`📋 Loaded ${blacklist.length} blacklisted users`);
+} catch (error) {
+  console.warn('⚠️ Could not load blacklist, starting with empty list:', error.message);
+}
 
 // Register Slash Commands
 const commands = [
@@ -112,6 +125,11 @@ async function buildUserContext(message) {
 
 // Handle Message Logic
 async function handleMessage(message, isServer = false) {
+  // Check if user is blacklisted
+  if (blacklist.includes(message.author.id)) {
+    return message.reply("sorry, you have been blacklisted from Fang Bot due to misuse or malicious content. Please contact dfang5 to request permission for a blacklist removal.");
+  }
+
   let content = isServer
     ? message.content.replace(/<@!?(\d+)>/, '').trim()
     : message.content;
